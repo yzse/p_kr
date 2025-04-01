@@ -83,7 +83,7 @@ fn main() -> Result<(), io::Error> {
                             },
                         };
                         
-                        app.messages.push(format!("{} in {} position {}.", bot_player.name, bot_position, actual_action_str));
+                        app.messages.push(format!("{} {}.", bot_player.name, actual_action_str));
                         let _human_idx = app.game.players.iter().position(|p| !p.is_bot).unwrap_or(0);
                         let player_idx = app.game.current_player_idx;
                         let contribution = match &actual_action.0 {
@@ -120,17 +120,28 @@ fn main() -> Result<(), io::Error> {
                         if game_continues && app.game.players[app.game.current_player_idx].is_bot {
                             app.bot_thinking = true;
                             
+                            // Check if we're at the start of a hand to set longer thinking time
                             let was_hand_just_dealt = app.messages.iter()
                                 .rev()
-                                .take(5)
+                                .take(10) // Search more messages to better detect new hands
                                 .any(|msg| msg.contains("New hand dealt"));
                                 
                             if was_hand_just_dealt {
+                                // Much longer thinking time at the very start of a hand (3-4 seconds)
                                 app.bot_think_until = std::time::Instant::now() + 
-                                    Duration::from_millis(rand::thread_rng().gen_range(3500..5000));
+                                    Duration::from_millis(rand::thread_rng().gen_range(3000..4000));
+                                    
+                                // Add a thinking message for the first action in a new hand
+                                let bot_name = &app.game.players[app.game.current_player_idx].name;
+                                let position = get_player_position(&app.game, app.game.current_player_idx);
+                                app.messages.push(format!("{} in {} position is thinking...", bot_name, position));
+                                
+                                // Small pause to ensure message is displayed
+                                std::thread::sleep(Duration::from_millis(50));
                             } else {
+                                // Regular thinking time during the hand (1.5-2.5 seconds)
                                 app.bot_think_until = std::time::Instant::now() + 
-                                    Duration::from_millis(rand::thread_rng().gen_range(1000..2500));
+                                    Duration::from_millis(rand::thread_rng().gen_range(1500..2500));
                             }
                         }
                         
@@ -167,31 +178,44 @@ fn main() -> Result<(), io::Error> {
                                                     app.messages.push(format!("You check."));
                                                 } else {
                                                     let position = get_player_position(&app.game, idx);
-                                                    app.messages.push(format!("{} in {} position checks.", player.name, position));
+                                                    app.messages.push(format!("{} checks.", player.name));
                                                 }
                                             }
                                         }
                                     }
                                     
-                                    std::thread::sleep(std::time::Duration::from_millis(50));
+                                    std::thread::sleep(std::time::Duration::from_millis(100));
                                     app.messages.push("--- Moving to SHOWDOWN (comparing hands) ---".to_string());
-                                    app.messages.push("--- SHOWDOWN: Players reveal their hands ---".to_string());
-                                    for (idx, player) in app.game.players.iter().enumerate() {
-                                        if !player.folded && player.hand.len() >= 2 {
-                                            let hand_str = player.hand.iter()
-                                                .map(|c| c.to_string())
-                                                .collect::<Vec<_>>()
-                                                .join(" ");
-                                                
-                                            let position = get_player_position(&app.game, idx);
+                                    app.messages.push("".to_string()); // Add empty line for better readability
+                                    app.messages.push("--- PLAYERS REVEAL THEIR HANDS ---".to_string());
+                                    
+                                    // Create a more prominent hands display with longer delay between reveals
+                                    let active_players: Vec<(usize, &game::Player)> = app.game.players.iter()
+                                        .enumerate()
+                                        .filter(|(_, p)| !p.folded && p.hand.len() >= 2)
+                                        .collect();
+                                    
+                                    // Show each hand with a small delay between them
+                                    for (idx, player) in active_players {
+                                        let hand_str = player.hand.iter()
+                                            .map(|c| c.to_string())
+                                            .collect::<Vec<_>>()
+                                            .join(" ");
                                             
-                                            if player.is_bot {
-                                                app.messages.push(format!("{} ({}) shows: {}", player.name, position, hand_str));
-                                            } else {
-                                                app.messages.push(format!("You ({}) show: {}", position, hand_str));
-                                            }
+                                        let position = get_player_position(&app.game, idx);
+                                        
+                                        if player.is_bot {
+                                            app.messages.push(format!("{} shows: {}", player.name, hand_str));
+                                        } else {
+                                            app.messages.push(format!("You show: {}", hand_str));
                                         }
+                                        
+                                        // Add a small pause after each reveal to make it more dramatic
+                                        std::thread::sleep(std::time::Duration::from_millis(200));
                                     }
+                                    
+                                    // Add an empty line after all hands are revealed
+                                    app.messages.push("".to_string());
                                     
                                     // Force UI update with extra delay
                                     std::thread::sleep(std::time::Duration::from_millis(100));
@@ -238,10 +262,23 @@ fn main() -> Result<(), io::Error> {
                                         "".to_string()
                                     };
                                     
-                                    // Display results in message log with more detail
+                                    // Force UI update before showing winner
+                                    std::thread::sleep(std::time::Duration::from_millis(100));
+                                    
+                                    // Display results in message log with more detail and emphasis
                                     let display_winnings = if winnings == 0 { 10 } else { winnings }; // Minimum 10 chips
-                                    let formatted_message = format!("Round over! {} wins ${} chips with {}{}!", 
-                                                            app.game.players[winner_idx].name, display_winnings, 
+                                    
+                                    app.messages.push("".to_string()); // Add empty line before winner
+                                    app.messages.push("WINNER DETERMINED".to_string());
+                                    
+                                    let winner_name = if winner_idx == human_idx {
+                                        "You".to_string()
+                                    } else {
+                                        app.game.players[winner_idx].name.clone()
+                                    };
+                                    
+                                    let formatted_message = format!("{} win ${} chips with {}{}!", 
+                                                            winner_name, display_winnings, 
                                                             hand_type, community_display);
                                     app.messages.push(formatted_message);
                                     
@@ -249,6 +286,9 @@ fn main() -> Result<(), io::Error> {
                                     if !hand_explanation.is_empty() {
                                         app.messages.push(format!("Hand info: {}", hand_explanation));
                                     }
+                                    
+                                    // Add empty line after winner announcement
+                                    app.messages.push("".to_string());
                                     
                                     if winner_idx == human_idx {
                                         app.messages.push(format!("You won this hand! Your profit: ${}. Total: ${}", profit.abs(), total_profit));
@@ -279,8 +319,8 @@ fn main() -> Result<(), io::Error> {
                                 _ => {}
                             }
                             
-                            // Log the new community cards if appropriate
-                            if !app.game.community_cards.is_empty() {
+                            // Log the new community cards if appropriate (but not after Showdown)
+                            if !app.game.community_cards.is_empty() && new_round != Round::Showdown {
                                 let cards_text = app.game.community_cards.iter()
                                     .map(|c| c.to_string())
                                     .collect::<Vec<_>>()
@@ -301,7 +341,7 @@ fn main() -> Result<(), io::Error> {
                                 if highest_bet > player_current_bet {
                                     app.messages.push(format!("Your turn now. Choose action: [c]all, [f]old, or [r]aise."));
                                 } else {
-                                    app.messages.push(format!("Your turn. No bet to call. Choose [k]heck or [r]aise."));
+                                    app.messages.push(format!("Your turn. No bet to call. Choose [k]heck, [f]old, or [r]aise."));
                                 }
                             }
                         }
@@ -324,15 +364,56 @@ fn main() -> Result<(), io::Error> {
                             // Calculate total profit across all rounds
                             let total_profit = app.game_stats.iter().sum::<i32>();
                             
-                            // Display results in message log with minimum winnings - use shorter messages
+                            // First, show all active players' hands for clarity
+                            app.messages.push("".to_string()); // Add empty line for better readability
+                            app.messages.push("--- PLAYERS REVEAL THEIR HANDS ---".to_string());
+                            
+                            // Get all active players
+                            let active_players: Vec<(usize, &game::Player)> = app.game.players.iter()
+                                .enumerate()
+                                .filter(|(_, p)| !p.folded && p.hand.len() >= 2)
+                                .collect();
+                            
+                            // Show each hand with a small delay
+                            for (idx, player) in active_players {
+                                let hand_str = player.hand.iter()
+                                    .map(|c| c.to_string())
+                                    .collect::<Vec<_>>()
+                                    .join(" ");
+                                    
+                                let position = get_player_position(&app.game, idx);
+                                
+                                if player.is_bot {
+                                    app.messages.push(format!("{} ({}) shows: {}", player.name, position, hand_str));
+                                } else {
+                                    app.messages.push(format!("You ({}) show: {}", position, hand_str));
+                                }
+                                
+                                // Add a small pause after each reveal
+                                std::thread::sleep(std::time::Duration::from_millis(200));
+                            }
+                            
+                            // Add empty line after hands
+                            app.messages.push("".to_string());
+                            
+                            // Display results with emphasis
                             let display_winnings = if winnings == 0 { 10 } else { winnings }; // Minimum 10 chips
-                            app.messages.push(format!("{} wins ${} with {}!", 
-                                                   app.game.players[winner_idx].name, display_winnings, hand_type));
+                            
+                            app.messages.push("WINNER DETERMINED".to_string());
+                            
+                            let winner_name = if winner_idx == human_idx {
+                                "You".to_string()
+                            } else {
+                                app.game.players[winner_idx].name.clone()
+                            };
+                            
+                            app.messages.push(format!("{} win ${} with {}!", 
+                                                winner_name, display_winnings, hand_type));
                             
                             if winner_idx == human_idx {
-                                app.messages.push(format!("You won! Profit: ${}. Total: ${}", profit.abs(), total_profit));
+                                app.messages.push(format!("You won this hand! Profit: ${}. Total: ${}", profit.abs(), total_profit));
                             } else {
-                                app.messages.push(format!("You lost. Loss: ${}. Total: ${}", profit.abs(), total_profit));
+                                app.messages.push(format!("You lost this hand. Loss: ${}. Total: ${}", profit.abs(), total_profit));
                             }
                             
                             // Mark game as inactive until player deals again
@@ -341,8 +422,26 @@ fn main() -> Result<(), io::Error> {
                         } else if app.game.players[app.game.current_player_idx].is_bot {
                             // If next player is a bot, set realistic thinking time
                             app.bot_thinking = true;
-                            app.bot_think_until = std::time::Instant::now() + 
-                                Duration::from_millis(rand::thread_rng().gen_range(1500..3000));
+                            
+                            // Check if we're at the start of a hand to set longer thinking time
+                            let is_start_of_hand = app.messages.iter()
+                                .rev()
+                                .take(10)
+                                .any(|msg| msg.contains("New hand dealt"));
+                                
+                            if is_start_of_hand {
+                                // Longer thinking time at the start of a hand (2-3 seconds)
+                                app.bot_think_until = std::time::Instant::now() + 
+                                    Duration::from_millis(rand::thread_rng().gen_range(2000..3000));
+                                    
+                                // Placeholder for bot thinking
+                                let bot_name = &app.game.players[app.game.current_player_idx].name;
+                                let position = get_player_position(&app.game, app.game.current_player_idx);
+                            } else {
+                                // Regular thinking time during hand (1.5-2.5 seconds)
+                                app.bot_think_until = std::time::Instant::now() + 
+                                    Duration::from_millis(rand::thread_rng().gen_range(1500..2500));
+                            }
                         }
                         
                         // Safety check to prevent infinite loop
@@ -357,20 +456,6 @@ fn main() -> Result<(), io::Error> {
                             let profit = human_player.chips as i32 - app.player_starting_chips as i32;
                             app.game_stats.push(profit);
                             let total_profit = app.game_stats.iter().sum::<i32>();
-                            
-                            // Add hand explanation based on hand type
-                            let hand_explanation = match hand_type.split_whitespace().next().unwrap_or("") {
-                                "Pair" => "A pair is two cards of the same rank.",
-                                "Two" => "Two pair means two different pairs of cards.",
-                                "Three" => "Three of a Kind is three cards of the same rank.",
-                                "Straight" => "A straight is five cards in sequential rank.",
-                                "Flush" => "A flush is five cards of the same suit.",
-                                "Full" => "A full house is three of a kind plus a pair.",
-                                "Four" => "Four of a Kind is four cards of the same rank.",
-                                "Straight-Flush" => "A straight flush is a straight and flush combined.",
-                                "Royal" => "A royal flush is A-K-Q-J-10 of the same suit - the best hand!",
-                                _ => "",
-                            };
                             
                             // Show community cards used in the win
                             let community_display = if !app.game.community_cards.is_empty() {
@@ -387,11 +472,6 @@ fn main() -> Result<(), io::Error> {
                                                     app.game.players[winner_idx].name, display_winnings, 
                                                     hand_type, community_display, total_profit);
                             app.messages.push(formatted_result);
-                            
-                            // Add explanation if available
-                            if !hand_explanation.is_empty() {
-                                app.messages.push(format!("Hand info: {}", hand_explanation));
-                            }
                             
                             app.game.last_action_count = 0;
                             
@@ -722,9 +802,10 @@ fn main() -> Result<(), io::Error> {
             
             let messages: Vec<ListItem> = app.messages.iter()
                 .map(|m| {
-                    let display_msg = if m.len() > max_msg_width {
-                        let end_pos = if max_msg_width > 5 { max_msg_width - 3 } else { 2 };
-                        format!("{}...", &m[0..end_pos])
+                    let display_msg = if m.chars().count() > max_msg_width {
+                        // Use char-based truncation to handle multi-byte characters correctly
+                        let truncated: String = m.chars().take(if max_msg_width > 5 { max_msg_width - 3 } else { 2 }).collect();
+                        format!("{}...", truncated)
                     } else {
                         m.clone()
                     };

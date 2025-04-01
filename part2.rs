@@ -6,7 +6,6 @@
         // Create initial instructions
         let initial_messages = vec![
             "Welcome to P_kr Poker!".to_string(),
-            "Enter your name and press 'n' to set it, or press Enter for default 'Player 1'.".to_string(),
             "Press 'd' to deal a new hand, 'q' to quit.".to_string(),
             "During play, use 'k' to check, 'c' to call, 'f' to fold, or type a number and press 'r' to raise.".to_string(),
         ];
@@ -326,7 +325,7 @@
             GameAction::Raise(amount) => format!("raise {}", amount),
         };
         
-        self.messages.push(format!("You (in {} position) {}.", player_position, action_str));
+        self.messages.push(format!("You {}.", action_str));
         self.game.perform_action(action);
         
         // Move to next player
@@ -862,7 +861,7 @@ fn main() -> Result<(), io::Error> {
             // Create a scrollable style with visual indication
             let messages_widget = List::new(messages)
                 .block(Block::default()
-                    .title(format!("Game Log (Scrollable - {}/{})", 
+                    .title(format!("Game Log (Scrollable ↑↓ - {}/{})", 
                                    app.message_scroll_pos + 1, 
                                    app.messages.len()))
                     .borders(Borders::ALL))

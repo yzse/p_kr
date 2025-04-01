@@ -1004,7 +1004,6 @@ impl App {
         // Create initial instructions
         let initial_messages = vec![
             "Welcome to P_kr Poker!".to_string(),
-            "Enter your name and press 'n' to set it, or press Enter for default 'Player 1'.".to_string(),
             "Press 'd' to deal a new hand, 'q' to quit.".to_string(),
             "During play, use 'k' to check, 'c' to call, 'f' to fold, or type a number and press 'r' to raise.".to_string(),
         ];
@@ -1324,7 +1323,7 @@ impl App {
             GameAction::Raise(amount) => format!("raise {}", amount),
         };
         
-        self.messages.push(format!("You (in {} position) {}.", player_position, action_str));
+        self.messages.push(format!("You {}.", action_str));
         self.game.perform_action(action);
         
         // Move to next player

@@ -752,6 +752,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "p_kr"
+version = "0.1.0"
+dependencies = [
+ "crossterm",
+ "rand 0.8.5",
+ "ratatui",
+ "reqwest",
+ "rs_poker",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "parking_lot"
 version = "0.12.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1006,20 +1020,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b8c0c260b63a8219631167be35e6a988e9554dbd323f8bd08439c8ed1302bd1"
 dependencies = [
  "bitflags 2.9.0",
-]
-
-[[package]]
-name = "p_kr"
-version = "0.1.0"
-dependencies = [
- "crossterm",
- "rand 0.8.5",
- "ratatui",
- "reqwest",
- "rs_poker",
- "serde",
- "serde_json",
- "tokio",
 ]
 
 [[package]]

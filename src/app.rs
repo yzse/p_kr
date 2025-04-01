@@ -29,7 +29,7 @@ pub struct App {
 impl App {
     pub fn new(api_key: Option<String>, player_name: String) -> Self {
         // Starting chips amount
-        let starting_chips = 200;
+        let starting_chips = 100;
         
         // Set up a game with 1 human player and 8 bots (total 9 players)
         let game = Game::new(1, 8, BotDifficulty::Medium, starting_chips, api_key, player_name);
@@ -99,6 +99,10 @@ impl App {
                         self.game.deal_cards();
                         self.messages.push("\nNew hand dealt.".to_string());
                         
+                        // Force a larger delay to allow the UI to update and the player to see the new hand
+                        // This makes the game feel more natural and gives time to look at the cards
+                        std::thread::sleep(std::time::Duration::from_millis(500));
+                        
                         // Add clear messages about blinds
                         let sb_name = self.game.players[self.game.small_blind_idx].name.clone();
                         let bb_name = self.game.players[self.game.big_blind_idx].name.clone();
@@ -126,8 +130,25 @@ impl App {
                         self.player_starting_chips = self.game.players[human_idx].chips;
                         self.round_results = None;
                         self.game_active = true;
-                        self.bot_thinking = false;
                         self.game.last_action_count = 0;
+                        
+                        // Add a deliberate delay when a new hand is dealt to make the game flow more naturally
+                        // First, check if it's a bot's turn 
+                        if self.game.players[self.game.current_player_idx].is_bot {
+                            // Always set thinking to true and force a much longer delay (3-4 seconds) for the first action
+                            self.bot_thinking = true;
+                            let delay = rand::thread_rng().gen_range(3000..4000); // Much longer thinking time (3-4 seconds)
+                            self.bot_think_until = std::time::Instant::now() + std::time::Duration::from_millis(delay);
+                            
+                            // Placeholder for bot thinking
+                            let bot_name = &self.game.players[self.game.current_player_idx].name;
+                            let position = util::get_player_position(&self.game, self.game.current_player_idx);
+                            
+                            // Force UI update to show this message
+                            std::thread::sleep(std::time::Duration::from_millis(50));
+                        } else {
+                            self.bot_thinking = false;
+                        }
                         
                         // Show total stats
                         if !self.game_stats.is_empty() {
@@ -535,7 +556,7 @@ impl App {
         }
         
         // Log the player's action
-        self.messages.push(format!("You (in {} position) {}.", player_position, actual_action_str));
+        self.messages.push(format!("You {}.", actual_action_str));
         
         // Get player index (for logging chip changes)
         let human_idx = self.game.players.iter().position(|p| !p.is_bot).unwrap_or(0);
@@ -622,20 +643,6 @@ impl App {
                     // Calculate total profit across all rounds
                     let total_profit = self.game_stats.iter().sum::<i32>();
                     
-                    // Add hand explanation based on hand type
-                    let hand_explanation = match hand_type.split_whitespace().next().unwrap_or("") {
-                        "Pair" => "A pair is two cards of the same rank.",
-                        "Two" => "Two pair means two different pairs of cards.",
-                        "Three" => "Three of a Kind is three cards of the same rank.",
-                        "Straight" => "A straight is five cards in sequential rank.",
-                        "Flush" => "A flush is five cards of the same suit.",
-                        "Full" => "A full house is three of a kind plus a pair.",
-                        "Four" => "Four of a Kind is four cards of the same rank.",
-                        "Straight-Flush" => "A straight flush is a straight and flush combined.",
-                        "Royal" => "A royal flush is A-K-Q-J-10 of the same suit - the best hand!",
-                        _ => "",
-                    };
-                    
                     // Show community cards used in the win
                     let community_display = if !self.game.community_cards.is_empty() {
                         let cards = self.game.community_cards.iter()
@@ -652,11 +659,6 @@ impl App {
                     self.messages.push(format!("Round over! {} wins ${} chips with {}{}!", 
                                             self.game.players[winner_idx].name, display_winnings, 
                                             hand_type, community_display));
-                    
-                    // Add explanation if available
-                    if !hand_explanation.is_empty() {
-                        self.messages.push(format!("Hand info: {}", hand_explanation));
-                    }
                     
                     if winner_idx == human_idx {
                         self.messages.push(format!("You won this hand! Your profit: ${}. Total: ${}", profit.abs(), total_profit));
@@ -700,20 +702,6 @@ impl App {
             // Set round results
             self.round_results = Some((winner_name, profit));
             
-            // Add hand explanation based on hand type
-            let hand_explanation = match hand_type.split_whitespace().next().unwrap_or("") {
-                "Pair" => "A pair is two cards of the same rank.",
-                "Two" => "Two pair means two different pairs of cards.",
-                "Three" => "Three of a Kind is three cards of the same rank.",
-                "Straight" => "A straight is five cards in sequential rank.",
-                "Flush" => "A flush is five cards of the same suit.",
-                "Full" => "A full house is three of a kind plus a pair.",
-                "Four" => "Four of a Kind is four cards of the same rank.",
-                "Straight-Flush" => "A straight flush is a straight and flush combined.",
-                "Royal" => "A royal flush is A-K-Q-J-10 of the same suit - the best hand!",
-                _ => "",
-            };
-            
             // Show community cards used in the win
             let community_display = if !self.game.community_cards.is_empty() {
                 let cards = self.game.community_cards.iter()
@@ -729,11 +717,6 @@ impl App {
             self.messages.push(format!("Round over! {} wins ${} chips with {}{}!", 
                                       self.game.players[winner_idx].name, winnings, 
                                       hand_type, community_display));
-            
-            // Add explanation if available
-            if !hand_explanation.is_empty() {
-                self.messages.push(format!("Hand info: {}", hand_explanation));
-            }
             
             if winner_idx == human_idx {
                 self.messages.push(format!("You won this hand! Your profit: ${}.", profit.abs()));
