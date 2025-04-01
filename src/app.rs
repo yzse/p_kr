@@ -1,7 +1,7 @@
 use std::time::Instant;
 use crossterm::event::KeyCode;
 use rand::Rng;
-use crate::game::{Game, GameAction, BotDifficulty, Round};
+use crate::game::{Game, GameAction, BotDifficulty, Round, Player};
 use crate::util;
 use crate::util::get_player_position;
 
@@ -112,9 +112,9 @@ impl App {
                         let _big_blind_pos = util::get_player_position(&self.game, self.game.big_blind_idx);
                         
                         // Add clear blind posts
-                        self.messages.push(format!("{} in Small Blind (SB) position posts ${}", 
+                        self.messages.push(format!("{} in Small Blind (SB) position posts ${}.", 
                                                   sb_name, self.game.min_bet / 2));
-                        self.messages.push(format!("{} in Big Blind (BB) position posts ${}", 
+                        self.messages.push(format!("{} in Big Blind (BB) position posts ${}.", 
                                                   bb_name, self.game.min_bet));
                         
                         // Verify deck is properly set up - must have more than 2*players cards 
@@ -141,8 +141,8 @@ impl App {
                             self.bot_think_until = std::time::Instant::now() + std::time::Duration::from_millis(delay);
                             
                             // Placeholder for bot thinking
-                            let bot_name = &self.game.players[self.game.current_player_idx].name;
-                            let position = util::get_player_position(&self.game, self.game.current_player_idx);
+                            let _bot_name = &self.game.players[self.game.current_player_idx].name;
+                            let _position = util::get_player_position(&self.game, self.game.current_player_idx);
                             
                             // Force UI update to show this message
                             std::thread::sleep(std::time::Duration::from_millis(50));
@@ -303,7 +303,7 @@ impl App {
             // Format the round profits
             let round_profits = self.game_stats.iter()
                 .enumerate()
-                .map(|(i, profit)| format!("R{}: ${}{}", i+1, if *profit >= 0 {""} else {"-"}, profit.abs()))
+                .map(|(_i, profit)| format!("${}{}", if *profit >= 0 {""} else {"-"}, profit.abs()))
                 .collect::<Vec<_>>()
                 .join(". ");
             
@@ -319,12 +319,389 @@ impl App {
             
             // Show round-by-round profits
             self.messages.push(format!("Round profits: {}", round_profits));
+            self.messages.push("".to_string()); // Add empty line for better readability
+            self.messages.push("".to_string()); // Add empty line for better readability
         } else {
             self.messages.push("Game stats: No rounds played yet.".to_string());
         }
     }
     
-    pub fn handle_player_action(&mut self, action: GameAction) {
+    // Process a bot action
+pub fn process_bot_action(&mut self, bot_action: GameAction, bot_player: Player) {
+    let action_str = match &bot_action {
+        GameAction::Fold => "folds".to_string(),
+        GameAction::Call => "calls".to_string(),
+        GameAction::Check => "checks".to_string(),
+        GameAction::Raise(amount) => {
+            let highest_bet = self.game.players.iter().map(|p| p.current_bet).max().unwrap_or(0);
+            let is_first_bet = highest_bet == 0 || highest_bet == self.game.min_bet;
+            
+            if is_first_bet && self.game.round != Round::PreFlop {
+                format!("bets {}", amount)
+            } else {
+                format!("raises by {}", amount)
+            }
+        },
+    };
+    
+    // Add message about bot action
+    self.messages.push(format!("{} {}.", bot_player.name, action_str));
+    
+    // Perform the action in the game
+    let actual_action = self.game.perform_action(bot_action);
+    
+    // Process pot increase if any
+    let player_idx = self.game.current_player_idx;
+    let contribution = match &actual_action.0 {
+        GameAction::Call | GameAction::Raise(_) => {
+            let highest_bet = self.game.players.iter().map(|p| p.current_bet).max().unwrap_or(0);
+            match &actual_action.0 {
+                GameAction::Call => {
+                    if let Some(bet) = actual_action.1 {
+                        let previous_bet = self.game.players[player_idx].current_bet - 
+                            (highest_bet.saturating_sub(self.game.players[player_idx].current_bet)
+                            .min(self.game.players[player_idx].chips));
+                        bet - previous_bet
+                    } else { 0 }
+                },
+                GameAction::Raise(amount) => *amount,
+                _ => 0
+            }
+        },
+        _ => 0
+    };
+    
+    // Log pot increase if any
+    if contribution > 0 {
+        let old_pot = self.game.pot - contribution;
+        self.messages.push(format!("Pot increased from ${} to ${}.", old_pot, self.game.pot));
+    }
+    
+    // Get the current round before moving to next player
+    let current_round = self.game.round;
+    
+    // Move to next player
+    let game_continues = self.game.next_player();
+    
+    // Handle round transitions
+    self.handle_round_transition(current_round, game_continues);
+    
+    // Notify if it's the player's turn
+    if game_continues && !self.game.players[self.game.current_player_idx].is_bot {
+        // Check if there's a bet to call
+        let highest_bet = self.game.players.iter().map(|p| p.current_bet).max().unwrap_or(0);
+        let player_current_bet = self.game.players[self.game.current_player_idx].current_bet;
+        
+        if highest_bet > player_current_bet {
+            self.messages.push("Your turn now. Options: [c]all, [f]old, or [r]aise.".to_string());
+        } else {
+            self.messages.push("Your turn now. Options: [k]heck, [f]old, or [r]aise.".to_string());
+        }
+    }
+    
+    // Check if round ended
+    if !game_continues {
+        self.handle_end_of_round();
+    } else if self.game.players[self.game.current_player_idx].is_bot {
+        // If next player is a bot, set up realistic thinking time
+        self.bot_thinking = true;
+        
+        // Check if we're at the start of a hand to set longer thinking time
+        let is_start_of_hand = self.messages.iter()
+            .rev()
+            .take(10)
+            .any(|msg| msg.contains("New hand dealt"));
+            
+        if is_start_of_hand {
+            // Longer thinking time at the start of a hand (2-3 seconds)
+            self.bot_think_until = std::time::Instant::now() + 
+                std::time::Duration::from_millis(rand::thread_rng().gen_range(2000..3000));
+        } else {
+            // Regular thinking time during hand (1.5-2.5 seconds)
+            self.bot_think_until = std::time::Instant::now() + 
+                std::time::Duration::from_millis(rand::thread_rng().gen_range(1500..2500));
+        }
+    }
+    
+    // Safety check to prevent infinite loop
+    if self.game.last_action_count > 25 {
+        self.handle_safety_timeout();
+    }
+}
+
+// Handle a round transition
+fn handle_round_transition(&mut self, previous_round: Round, game_continues: bool) {
+    if game_continues && self.game.round != previous_round {
+        // Add a message about round transition
+        match self.game.round {
+            Round::Flop => {
+                std::thread::sleep(std::time::Duration::from_millis(50));
+                self.messages.push("--- Moving to FLOP round (first 3 community cards) ---".to_string());
+            },
+            Round::Turn => {
+                std::thread::sleep(std::time::Duration::from_millis(50));
+                self.messages.push("--- Moving to TURN round (4th community card) ---".to_string());
+            },
+            Round::River => {
+                std::thread::sleep(std::time::Duration::from_millis(50));
+                self.messages.push("--- Moving to RIVER round (final community card) ---".to_string());
+            },
+            Round::Showdown => {
+                std::thread::sleep(std::time::Duration::from_millis(100));
+                self.messages.push("--- Moving to SHOWDOWN (comparing hands) ---".to_string());
+                self.messages.push("".to_string()); // Add empty line for better readability
+                self.determine_winner_and_end_round();
+                return;
+            },
+            _ => {}
+        }
+        
+        // Log the new community cards if appropriate (but not after Showdown)
+        if !self.game.community_cards.is_empty() && self.game.round != Round::Showdown {
+            let cards_text = self.game.community_cards.iter()
+                .map(|c| c.to_string())
+                .collect::<Vec<_>>()
+                .join(" ");
+            self.messages.push(format!("Community cards: {}", cards_text));
+            
+            // Force UI update by adding a small delay
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        
+        // Make sure the current player is correctly set for the new round
+        if self.game.round != Round::Showdown && !self.game.players[self.game.current_player_idx].is_bot {
+            // Human's turn - notify explicitly
+            // Check if there's a bet to call
+            let highest_bet = self.game.players.iter().map(|p| p.current_bet).max().unwrap_or(0);
+            let player_current_bet = self.game.players[self.game.current_player_idx].current_bet;
+            
+            if highest_bet > player_current_bet {
+                self.messages.push(format!("Your turn now. Choose action: [c]all, [f]old, or [r]aise."));
+            } else {
+                self.messages.push(format!("Your turn. No bet to call. Choose [k]heck, [f]old, or [r]aise."));
+            }
+        }
+    }
+}
+
+// Handle end of round (winner determination when game is over)
+fn handle_end_of_round(&mut self) {
+    // Get winner info
+    let (winner_idx, winnings, hand_type) = self.game.determine_winner();
+    let winner_name = self.game.players[winner_idx].name.clone();
+    
+    // Calculate profit/loss for human player
+    let human_idx = self.game.players.iter().position(|p| !p.is_bot).unwrap_or(0);
+    let human_player = &self.game.players[human_idx];
+    let profit = human_player.chips as i32 - self.player_starting_chips as i32;
+    
+    // Set round results and track game stats
+    self.round_results = Some((winner_name.clone(), profit));
+    self.game_stats.push(profit);
+    
+    // Calculate total profit across all rounds
+    let total_profit = self.game_stats.iter().sum::<i32>();
+    
+    // Show all active players' hands for clarity
+    self.messages.push("".to_string()); // Add empty line for better readability
+    self.messages.push("--- PLAYERS REVEAL THEIR HANDS ---".to_string());
+    
+    // Show each player's hand
+    for (_idx, player) in self.game.players.iter().enumerate() {
+        if !player.folded && player.hand.len() >= 2 {
+            let hand_str = player.hand.iter()
+                .map(|c| c.to_string())
+                .collect::<Vec<_>>()
+                .join(" ");
+            
+            if player.is_bot {
+                self.messages.push(format!("{} shows: {}", player.name, hand_str));
+            } else {
+                self.messages.push(format!("You show: {}", hand_str));
+            }
+            
+            // Add a small pause after each reveal
+            std::thread::sleep(std::time::Duration::from_millis(200));
+        }
+    }
+    
+    // Add empty line after hands
+    self.messages.push("".to_string());
+    
+    // Display results with emphasis
+    let display_winnings = if winnings == 0 { 10 } else { winnings }; // Minimum 10 chips
+    
+    self.messages.push("WINNER DETERMINED".to_string());
+    
+    let winner_name = if winner_idx == human_idx {
+        "You".to_string()
+    } else {
+        self.game.players[winner_idx].name.clone()
+    };
+    
+    self.messages.push(format!("{} win ${} with {}!", 
+                    winner_name, display_winnings, hand_type));
+    
+    if winner_idx == human_idx {
+        self.messages.push(format!("You won this hand! Profit: ${}. Total: ${}", profit.abs(), total_profit));
+    } else {
+        self.messages.push(format!("You lost this hand. Loss: ${}. Total: ${}", profit.abs(), total_profit));
+    }
+    
+    // Mark game as inactive until player deals again
+    self.game_active = false;
+    self.messages.push("Press 'd' to deal a new hand.".to_string());
+}
+
+// Handle safety timeout for too many actions
+fn handle_safety_timeout(&mut self) {
+    self.messages.push("Round ending (action limit reached).".to_string());
+    let (winner_idx, winnings, hand_type) = self.game.determine_winner();
+    
+    // Use minimum winnings display for clarity
+    let display_winnings = if winnings == 0 { 10 } else { winnings }; 
+    
+    // Calculate profit/loss for human player
+    let human_idx = self.game.players.iter().position(|p| !p.is_bot).unwrap_or(0);
+    let human_player = &self.game.players[human_idx];
+    let profit = human_player.chips as i32 - self.player_starting_chips as i32;
+    
+    // Add to game stats and calculate total
+    self.game_stats.push(profit);
+    let total_profit = self.game_stats.iter().sum::<i32>();
+    
+    // Show community cards used in the win
+    let community_display = if !self.game.community_cards.is_empty() {
+        let cards = self.game.community_cards.iter()
+            .map(|c| c.to_string())
+            .collect::<Vec<_>>()
+            .join(" ");
+        format!(" (with community cards: {})", cards)
+    } else {
+        "".to_string()
+    };
+    
+    // Format result with community cards
+    let formatted_result = format!("{} wins ${} with {}{}! Your total profit: ${}", 
+                            self.game.players[winner_idx].name, display_winnings, 
+                            hand_type, community_display, total_profit);
+    self.messages.push(formatted_result);
+    
+    // Reset action counter and end game
+    self.game.last_action_count = 0;
+    
+    // Print game stats
+    self.print_game_stats();
+    
+    self.game_active = false;
+    self.messages.push("Press 'd' to deal a new hand.".to_string());
+    self.messages.push("".to_string()); // Add empty line between rounds
+}
+
+// Determine winner at showdown
+fn determine_winner_and_end_round(&mut self) {
+    self.messages.push("--- PLAYERS REVEAL THEIR HANDS ---".to_string());
+    
+    // Create a more prominent hands display
+    let active_players: Vec<(usize, &Player)> = self.game.players.iter()
+        .enumerate()
+        .filter(|(_, p)| !p.folded && p.hand.len() >= 2)
+        .collect();
+    
+    // Show each hand with a small delay between them
+    for (_idx, player) in active_players {
+        let hand_str = player.hand.iter()
+            .map(|c| c.to_string())
+            .collect::<Vec<_>>()
+            .join(" ");
+            
+        if player.is_bot {
+            self.messages.push(format!("{} shows: {}", player.name, hand_str));
+        } else {
+            self.messages.push(format!("You show: {}", hand_str));
+        }
+        
+        // Add a small pause after each reveal to make it more dramatic
+        std::thread::sleep(std::time::Duration::from_millis(200));
+    }
+    
+    // Add an empty line after all hands are revealed
+    self.messages.push("".to_string());
+    
+    // Force UI update with extra delay
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    
+    // Determine the winner
+    let (winner_idx, winnings, hand_type) = self.game.determine_winner();
+    let winner_name = self.game.players[winner_idx].name.clone();
+    
+    // Calculate profit/loss for human player
+    let human_idx = self.game.players.iter().position(|p| !p.is_bot).unwrap_or(0);
+    let human_player = &self.game.players[human_idx];
+    let profit = human_player.chips as i32 - self.player_starting_chips as i32;
+    
+    // Set round results and track game stats
+    self.round_results = Some((winner_name.clone(), profit));
+    self.game_stats.push(profit);
+    
+    // Calculate total profit across all rounds
+    let total_profit = self.game_stats.iter().sum::<i32>();
+    
+    // Show community cards used in the win
+    let community_display = if !self.game.community_cards.is_empty() {
+        let cards = self.game.community_cards.iter()
+            .map(|c| c.to_string())
+            .collect::<Vec<_>>()
+            .join(" ");
+        format!(" (with community cards: {})", cards)
+    } else {
+        "".to_string()
+    };
+    
+    // Force UI update before showing winner
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    
+    // Display results in message log with more detail and emphasis
+    let display_winnings = if winnings == 0 { 10 } else { winnings }; // Minimum 10 chips
+    
+    self.messages.push("".to_string()); // Add empty line before winner
+    self.messages.push("WINNER DETERMINED".to_string());
+    
+    let winner_name = if winner_idx == human_idx {
+        "You".to_string()
+    } else {
+        self.game.players[winner_idx].name.clone()
+    };
+    
+    let formatted_message = format!("{} win ${} chips with {}{}", 
+                            winner_name, display_winnings, 
+                            hand_type, community_display);
+    self.messages.push(formatted_message);
+    
+    self.messages.push("".to_string());
+    
+    if winner_idx == human_idx {
+        self.messages.push(format!("You won this hand! Your profit: ${}. Total: ${}", profit.abs(), total_profit));
+    } else {
+        self.messages.push(format!("You lost this hand. Your loss: ${}. Total: ${}", profit.abs(), total_profit));
+    }
+    
+    // Print game stats
+    self.print_game_stats();
+    
+    // End the game
+    self.game_active = false;
+    self.messages.push("Press 'd' to deal a new hand.".to_string());
+    self.messages.push("".to_string()); // Add empty line between rounds
+    
+    // Ensure the message scroll position is updated to show the latest messages
+    self.message_scroll_pos = self.messages.len().saturating_sub(1);
+    
+    // Force UI update with one more delay
+    std::thread::sleep(std::time::Duration::from_millis(100));
+}
+
+pub fn handle_player_action(&mut self, action: GameAction) {
         // Special handling for Showdown round - force winner determination
         if self.game.round == Round::Showdown {
             match action {
@@ -344,19 +721,17 @@ impl App {
             
             // Show all players' hands who haven't folded
             self.messages.push("--- SHOWDOWN: Players reveal their hands ---".to_string());
-            for (idx, player) in self.game.players.iter().enumerate() {
+            for (_idx, player) in self.game.players.iter().enumerate() {
                 if !player.folded && player.hand.len() >= 2 {
                     let hand_str = player.hand.iter()
                         .map(|c| c.to_string())
                         .collect::<Vec<_>>()
                         .join(" ");
                         
-                    let position = get_player_position(&self.game, idx);
-                    
                     if player.is_bot {
-                        self.messages.push(format!("{} ({}) shows: {}", player.name, position, hand_str));
+                        self.messages.push(format!("{} shows: {}", player.name, hand_str));
                     } else {
-                        self.messages.push(format!("You ({}) show: {}", position, hand_str));
+                        self.messages.push(format!("You show: {}", hand_str));
                     }
                 }
             }
@@ -484,7 +859,7 @@ impl App {
             self.messages.push(format!("Community cards: {}", cards_text));
         }
         
-        let player_position = get_player_position(&self.game, self.game.current_player_idx);
+        let _player_position = get_player_position(&self.game, self.game.current_player_idx);
         // We don't need this anymore since we use actual_action_str
         // Just keeping a placeholder to ensure proper code flow
         let _original_intent = &action;
@@ -734,6 +1109,17 @@ impl App {
             self.bot_thinking = true;
             self.bot_think_until = Instant::now() + 
                 std::time::Duration::from_millis(rand::thread_rng().gen_range(1500..3000));
+        } else {
+            // It's the player's turn now
+            // Check if there's a bet to call
+            let highest_bet = self.game.players.iter().map(|p| p.current_bet).max().unwrap_or(0);
+            let player_current_bet = self.game.players[self.game.current_player_idx].current_bet;
+            
+            if highest_bet > player_current_bet {
+                self.messages.push("Your turn now. Options: [c]all, [f]old, or [r]aise.".to_string());
+            } else {
+                self.messages.push("Your turn now. Options: [k]heck, [f]old, or [r]aise.".to_string());
+            }
         }
     }
 }

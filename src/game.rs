@@ -833,7 +833,7 @@ impl Game {
         };
         
         // Validation step - confirm pot increase matches player contribution
-        let player_contribution = self.player_contributions_this_round[current_player_idx] - player_contribution_before;
+        let _player_contribution = self.player_contributions_this_round[current_player_idx] - player_contribution_before;
         let pot_increase = self.pot - initial_pot;
         let chip_decrease = initial_chips - self.players[current_player_idx].chips;
         
