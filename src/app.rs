@@ -158,7 +158,7 @@ impl App {
                                 .map(|(i, profit)| format!("R{}: ${}{}", i+1, if *profit >= 0 {""} else {"-"}, profit.abs()))
                                 .collect::<Vec<_>>()
                                 .join(", ");
-                            self.messages.push(format!("Game stats: {} rounds played. Profits: {}. Total: ${}", 
+                            self.messages.push(format!("Stats: {} rounds played. Profits: {}. Total: ${}", 
                                                       self.game_stats.len(), profit_list, total_profit));
                         }
                     },
@@ -309,7 +309,7 @@ impl App {
             
             // Show detailed stats
             self.messages.push(format!(
-                "Game stats: {} rounds played. Current round profit: ${}{}. Total profit: ${}. Current chips: ${}", 
+                "Overall stats: {} rounds played. Current round profit: ${}{}. Total profit: ${}. Current chips: ${}", 
                 self.game_stats.len(), 
                 if *current_round_profit >= 0 { "" } else { "-" },
                 current_round_profit.abs(),
@@ -322,7 +322,7 @@ impl App {
             self.messages.push("".to_string()); // Add empty line for better readability
             self.messages.push("".to_string()); // Add empty line for better readability
         } else {
-            self.messages.push("Game stats: No rounds played yet.".to_string());
+            self.messages.push("STATS: No rounds played yet.".to_string());
         }
     }
     
@@ -495,7 +495,7 @@ fn handle_end_of_round(&mut self) {
     let human_player = &self.game.players[human_idx];
     let profit = human_player.chips as i32 - self.player_starting_chips as i32;
     
-    // Set round results and track game stats
+    // Set round results and track Stats
     self.round_results = Some((winner_name.clone(), profit));
     self.game_stats.push(profit);
     
@@ -566,7 +566,7 @@ fn handle_safety_timeout(&mut self) {
     let human_player = &self.game.players[human_idx];
     let profit = human_player.chips as i32 - self.player_starting_chips as i32;
     
-    // Add to game stats and calculate total
+    // Add to Stats and calculate total
     self.game_stats.push(profit);
     let total_profit = self.game_stats.iter().sum::<i32>();
     
@@ -590,7 +590,7 @@ fn handle_safety_timeout(&mut self) {
     // Reset action counter and end game
     self.game.last_action_count = 0;
     
-    // Print game stats
+    // Print Stats
     self.print_game_stats();
     
     self.game_active = false;
@@ -640,7 +640,7 @@ fn determine_winner_and_end_round(&mut self) {
     let human_player = &self.game.players[human_idx];
     let profit = human_player.chips as i32 - self.player_starting_chips as i32;
     
-    // Set round results and track game stats
+    // Set round results and track Stats
     self.round_results = Some((winner_name.clone(), profit));
     self.game_stats.push(profit);
     
@@ -686,7 +686,7 @@ fn determine_winner_and_end_round(&mut self) {
         self.messages.push(format!("You lost this hand. Your loss: ${}. Total: ${}", profit.abs(), total_profit));
     }
     
-    // Print game stats
+    // Print Stats
     self.print_game_stats();
     
     // End the game
@@ -745,7 +745,7 @@ pub fn handle_player_action(&mut self, action: GameAction) {
             let human_player = &self.game.players[human_idx];
             let profit = human_player.chips as i32 - self.player_starting_chips as i32;
             
-            // Set round results and track game stats
+            // Set round results and track Stats
             self.round_results = Some((winner_name.clone(), profit));
             self.game_stats.push(profit);
             
@@ -1011,7 +1011,7 @@ pub fn handle_player_action(&mut self, action: GameAction) {
                     let human_player = &self.game.players[human_idx];
                     let profit = human_player.chips as i32 - self.player_starting_chips as i32;
                     
-                    // Set round results and track game stats
+                    // Set round results and track Stats
                     self.round_results = Some((winner_name.clone(), profit));
                     self.game_stats.push(profit);
                     
@@ -1044,7 +1044,7 @@ pub fn handle_player_action(&mut self, action: GameAction) {
                     // Add a small delay to ensure UI updates correctly
                     std::thread::sleep(std::time::Duration::from_millis(100));
                     
-                    // Print game stats
+                    // Print Stats
                     self.print_game_stats();
                     
                     // End the game
@@ -1099,7 +1099,7 @@ pub fn handle_player_action(&mut self, action: GameAction) {
                 self.messages.push(format!("You lost this hand. Your loss: ${}.", profit.abs()));
             }
             
-            // Print game stats
+            // Print Stats
             self.print_game_stats();
             return;
         }

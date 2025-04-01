@@ -15,36 +15,60 @@ use crate::util::get_player_position;
 
 // Render the application UI
 pub fn render_ui<B: Backend>(f: &mut Frame<B>, app: &mut App) {
-    // Create layout - use more space efficiently
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
+    // Create horizontal split first for main area and sidebar
+    let horizontal_chunks = Layout::default()
+        .direction(Direction::Horizontal)
         .margin(1)
         .constraints([
-            Constraint::Length(7),   // Game info (expanded)
+            Constraint::Percentage(75),   // Main game area (75% of width)
+            Constraint::Percentage(25),   // Right sidebar (25% of width)
+        ].as_ref())
+        .split(f.size());
+        
+    // Split the main area vertically
+    let main_chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(4),   // Reduced game info (status info only)
             Constraint::Length(3),   // Community cards
             Constraint::Length(3),   // Player hand
             Constraint::Min(10),     // Messages (expanded)
             Constraint::Length(3),   // Input
         ].as_ref())
-        .split(f.size());
+        .split(horizontal_chunks[0]);
+        
+    // Create sidebar for info
+    let sidebar_chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(10),  // Game status area (now on top)
+            Constraint::Min(12),     // Stack/pot info with visualizations (now below)            
+        ].as_ref())
+        .split(horizontal_chunks[1]);
     
-    // Game info widget (top area with stats)
-    render_game_info(f, app, chunks[0]);
+    // Game info widget (top area with core game status)
+    render_game_info(f, app, main_chunks[0]);
+    
+    // Right sidebar game status area (now on top)
+    render_game_status(f, app, sidebar_chunks[0]);
+    
+    // Right sidebar with chips/pot visualization (now below)
+    render_chip_info(f, app, sidebar_chunks[1]);
     
     // Community cards widget
-    render_community_cards(f, app, chunks[1]);
+    render_community_cards(f, app, main_chunks[1]);
     
     // Player's hand widget
-    render_player_hand(f, app, chunks[2]);
+    render_player_hand(f, app, main_chunks[2]);
     
     // Messages widget (with scrolling)
-    render_messages(f, app, chunks[3]);
+    render_messages(f, app, main_chunks[3]);
     
     // Input widget
-    render_input(f, app, chunks[4]);
+    render_input(f, app, main_chunks[4]);
 }
 
-// Render the game info section
+// Render the game info section - now simplified with player status only
 fn render_game_info<B: Backend>(f: &mut Frame<B>, app: &mut App, area: tui::layout::Rect) {
     // Show whose turn it is - keep brief for small screens 
     let current_player = &app.game.players[app.game.current_player_idx];
@@ -112,20 +136,11 @@ fn render_game_info<B: Backend>(f: &mut Frame<B>, app: &mut App, area: tui::layo
         "".to_string()
     };
     
-    // Game status/controls display
+    // Game status/controls display - simplified for top area
     let game_status = if app.game_active {
         "Game in progress [s: stop game]"
     } else {
         "Game not active [d: deal new hand, q: quit]"
-    };
-
-    // Style the pot amount with color based on size
-    let pot_style = if app.game.pot > 100 {
-        Style::default().fg(Color::Yellow)
-    } else if app.game.pot > 50 {
-        Style::default().fg(Color::Green)
-    } else {
-        Style::default()
     };
     
     // Calculate available width to ensure no overflow
@@ -133,177 +148,7 @@ fn render_game_info<B: Backend>(f: &mut Frame<B>, app: &mut App, area: tui::layo
     let truncate_large = total_width < 70; // If screen is narrow, use shorter format
     
     let game_info = Paragraph::new(vec![
-        // Row 1: Basic game stats (with potential truncation)
-        Line::from(vec![
-            Span::raw("Pot: "),
-            Span::styled(format!("${} ", app.game.pot), pot_style),
-            // Visual pot indicator that scales with size
-            Span::styled(
-                {
-                    let pot = app.game.pot;
-                    let symbols = if pot < 20 {
-                        "○"
-                    } else if pot < 50 {
-                        "◎"
-                    } else if pot < 100 {
-                        "●"
-                    } else if pot < 200 {
-                        "●●"
-                    } else if pot < 400 {
-                        "●●●"
-                    } else if pot < 700 {
-                        "●●●●"
-                    } else {
-                        "●●●●●"
-                    };
-                    symbols
-                },
-                Style::default().fg(if app.game.pot > 200 { Color::Red } 
-                    else if app.game.pot > 100 { Color::Yellow } 
-                    else { Color::Green })
-            ),
-            Span::raw(" | "),
-            Span::raw(if truncate_large { "Chips: " } else { "Your Chips: " }),
-            // Get player chips for both display and visualization
-            {
-                let player_chips = app.game.players.iter()
-                    .find(|p| !p.is_bot)
-                    .map(|p| p.chips)
-                    .unwrap_or(0);
-                
-                Span::styled(format!("${} ", player_chips), Style::default().fg(Color::Cyan))
-            },
-            // Visual chips indicator that scales with amount
-            Span::styled(
-                {
-                    let player_chips = app.game.players.iter()
-                        .find(|p| !p.is_bot)
-                        .map(|p| p.chips)
-                        .unwrap_or(0);
-                    
-                    let chip_symbols = if player_chips < 30 {
-                        "□"
-                    } else if player_chips < 70 {
-                        "■"
-                    } else if player_chips < 120 {
-                        "■■"
-                    } else if player_chips < 200 {
-                        "■■■"
-                    } else if player_chips < 300 {
-                        "■■■■"
-                    } else {
-                        "■■■■■"
-                    };
-                    chip_symbols
-                },
-                Style::default().fg(if app.game.players.iter()
-                    .find(|p| !p.is_bot)
-                    .map(|p| p.chips)
-                    .unwrap_or(0) < 50 { Color::Red } 
-                    else if app.game.players.iter()
-                        .find(|p| !p.is_bot)
-                        .map(|p| p.chips)
-                        .unwrap_or(0) < 100 { Color::Yellow } 
-                    else { Color::Blue })
-            ),
-            Span::raw("| "),
-            Span::raw(if truncate_large { "Bet: " } else { "Current Bet: " }),
-            // Get the current bet for both display and visualization
-            {
-                let current_bet = app.game.players.iter()
-                    .map(|p| p.current_bet)
-                    .max()
-                    .unwrap_or(0);
-                
-                Span::styled(format!("${} ", current_bet), Style::default().fg(Color::Yellow))
-            },
-            // Visual bet indicator that scales with amount
-            Span::styled(
-                {
-                    let current_bet = app.game.players.iter()
-                        .map(|p| p.current_bet)
-                        .max()
-                        .unwrap_or(0);
-                    
-                    let bet_symbols = if current_bet == 0 {
-                        "-"
-                    } else if current_bet < 10 {
-                        "▪"
-                    } else if current_bet < 30 {
-                        "▫▫"
-                    } else if current_bet < 60 {
-                        "▫▫▫"
-                    } else if current_bet < 100 {
-                        "▫▫▫▫"
-                    } else {
-                        "▫▫▫▫▫"
-                    };
-                    bet_symbols
-                },
-                Style::default().fg(if app.game.players.iter()
-                    .map(|p| p.current_bet)
-                    .max()
-                    .unwrap_or(0) > 70 { Color::Red }
-                    else if app.game.players.iter()
-                        .map(|p| p.current_bet)
-                        .max()
-                        .unwrap_or(0) > 30 { Color::Yellow }
-                    else { Color::Green })
-            ),
-        ]),
-        // Row 2: Round information (with potential truncation)
-        Line::from(vec![
-            Span::raw("Round: "),
-            Span::styled(format!("{:?}", app.game.round), Style::default().fg(Color::Green)),
-            Span::raw(" | Active Players: "),
-            Span::styled(format!("{} ({} bots)", active_players, app.game.players.len() - 1), 
-                        Style::default().fg(Color::Blue)),
-            Span::raw(" | "),
-            Span::raw(if truncate_large { "Pos: " } else { "Position: " }),
-            Span::styled(
-                // Truncate position name if too long
-                if human_position.len() > 15 && truncate_large {
-                    format!("{}..", &human_position[0..12])
-                } else {
-                    human_position
-                }, 
-                Style::default().fg(Color::Cyan)
-            ),
-        ]),
-        // Row 3: Table positions (with potential truncation)
-        Line::from(vec![
-            Span::raw("D: "),
-            Span::styled(
-                // Truncate dealer name if too long
-                if app.game.players[app.game.dealer_idx].name.len() > 10 && truncate_large {
-                    format!("{}..", &app.game.players[app.game.dealer_idx].name[0..7])
-                } else {
-                    app.game.players[app.game.dealer_idx].name.clone()
-                },
-                Style::default().fg(Color::Yellow)
-            ),
-            Span::raw(" | SB: "),
-            Span::styled(
-                // Truncate SB name if too long
-                if app.game.players[app.game.small_blind_idx].name.len() > 10 && truncate_large {
-                    format!("{}..", &app.game.players[app.game.small_blind_idx].name[0..7])
-                } else {
-                    app.game.players[app.game.small_blind_idx].name.clone()
-                },
-                Style::default().fg(Color::Yellow)
-            ),
-            Span::raw(" | BB: "),
-            Span::styled(
-                // Truncate BB name if too long
-                if app.game.players[app.game.big_blind_idx].name.len() > 10 && truncate_large {
-                    format!("{}..", &app.game.players[app.game.big_blind_idx].name[0..7])
-                } else {
-                    app.game.players[app.game.big_blind_idx].name.clone()
-                },
-                Style::default().fg(Color::Yellow)
-            ),
-        ]),
-        // Row 4: Player status (with truncation to prevent overflow)
+        // Player status (with truncation to prevent overflow)
         Line::from(vec![
             Span::raw("Players: "),
             Span::styled(
@@ -321,45 +166,31 @@ fn render_game_info<B: Backend>(f: &mut Frame<B>, app: &mut App, area: tui::layo
                 }, 
                 Style::default().fg(Color::White))
         ]),
-        // Row 5: Game stats or turn info (with truncation for long texts)
+        // Round and position info
+        Line::from(vec![
+            Span::raw("Round: "),
+            Span::styled(format!("{:?}", app.game.round), Style::default().fg(Color::Green)),
+            Span::raw(" | Position: "),
+            Span::styled(
+                // Truncate position name if too long
+                if human_position.len() > 15 && truncate_large {
+                    format!("{}..", &human_position[0..12])
+                } else {
+                    human_position
+                }, 
+                Style::default().fg(Color::Cyan)
+            ),
+        ]),
+        // Game action info (simplified)
         Line::from(vec![
             Span::styled("► ", Style::default().fg(Color::Green)),
             Span::styled(
-                if !app.game_active && !app.game_stats.is_empty() {
-                    let total_profit = app.game_stats.iter().sum::<i32>();
-                    let display = format!("Total profit: ${}. Rounds played: {}", 
-                                        total_profit, app.game_stats.len());
-                    if display.len() + 2 > total_width {
-                        format!("{}..", &display[0..total_width.saturating_sub(5)])
-                    } else {
-                        display
-                    }
-                } else if turn_info.len() + 2 > total_width {
+                if turn_info.len() + 2 > total_width {
                     format!("{}..", &turn_info[0..total_width.saturating_sub(5)])
                 } else {
                     turn_info.to_string()
                 }, 
                 Style::default().fg(Color::Cyan))
-        ]),
-        // Row 6: Last result and game status (with truncation)
-        Line::from(vec![
-            Span::styled(
-                if result_display.len() > 35 {
-                    format!("{}..", &result_display[0..32]) 
-                } else {
-                    result_display.to_string()
-                },
-                Style::default().fg(Color::Green)
-            ),
-            Span::raw("   "),
-            Span::styled(
-                if game_status.len() > 35 {
-                    format!("{}..", &game_status[0..32])
-                } else {
-                    game_status.to_string()
-                },
-                Style::default().fg(Color::Yellow)
-            )
         ])
     ])
     .block(Block::default().title("").borders(Borders::ALL));
@@ -367,6 +198,202 @@ fn render_game_info<B: Backend>(f: &mut Frame<B>, app: &mut App, area: tui::layo
 }
 
 // Render the community cards
+// Render the chip/pot/bet visualization sidebar
+fn render_chip_info<B: Backend>(f: &mut Frame<B>, app: &App, area: tui::layout::Rect) {
+    // Style the pot amount with color based on size
+    let pot_style = if app.game.pot > 100 {
+        Style::default().fg(Color::Yellow)
+    } else if app.game.pot > 50 {
+        Style::default().fg(Color::Green)
+    } else {
+        Style::default()
+    };
+    
+    // Get the human player's chip count
+    let player_chips = app.game.players.iter()
+        .find(|p| !p.is_bot)
+        .map(|p| p.chips)
+        .unwrap_or(0);
+        
+    // Get the current highest bet
+    let current_bet = app.game.players.iter()
+        .map(|p| p.current_bet)
+        .max()
+        .unwrap_or(0);
+    
+    // Create a visually interesting display with larger visualizations
+    let chip_info = Paragraph::new(vec![
+        
+        // Pot section with larger visualization
+        Line::from(vec![
+            Span::raw("POT")
+        ]),
+        Line::from(vec![
+            Span::styled(format!("${}", app.game.pot), 
+                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
+        ]),
+        Line::from(vec![
+            Span::styled(
+                {
+                    let pot = app.game.pot;
+                    if pot < 20 {
+                        "○"
+                    } else if pot < 50 {
+                        "○○"
+                    } else if pot < 100 {
+                        "●●"
+                    } else if pot < 200 {
+                        "●●●"
+                    } else if pot < 400 {
+                        "●●●●"
+                    } else {
+                        "●●●●●"
+                    }
+                },
+                Style::default().fg(if app.game.pot > 200 { Color::Red } 
+                    else if app.game.pot > 100 { Color::Yellow } 
+                    else { Color::Green })
+            )
+        ]),
+        // Empty line for spacing
+        Line::from(vec![Span::raw("")]),
+        // Your chips section
+        Line::from(vec![
+            Span::raw("YOUR CHIPS")
+        ]),
+        Line::from(vec![
+            Span::styled(format!("${}", player_chips), 
+                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
+        ]),
+        Line::from(vec![
+            Span::styled(
+                {
+                    if player_chips < 30 {
+                        "□"
+                    } else if player_chips < 70 {
+                        "□□"
+                    } else if player_chips < 120 {
+                        "■■"
+                    } else if player_chips < 200 {
+                        "■■■"
+                    } else if player_chips < 300 {
+                        "■■■■"
+                    } else {
+                        "■■■■■"
+                    }
+                },
+                Style::default().fg(if player_chips < 50 { Color::Red } 
+                    else if player_chips < 100 { Color::Yellow } 
+                    else { Color::Blue })
+            )
+        ]),
+        // Empty line for spacing
+        Line::from(vec![Span::raw("")]),
+        // Current bet section
+        Line::from(vec![
+            Span::raw("CURRENT BET")
+        ]),
+        Line::from(vec![
+            Span::styled(format!("${}", current_bet), 
+                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
+        ]),
+        Line::from(vec![
+            Span::styled(
+                {
+                    if current_bet == 0 {
+                        "-"
+                    } else if current_bet < 10 {
+                        "▪"
+                    } else if current_bet < 30 {
+                        "▫▫"
+                    } else if current_bet < 60 {
+                        "▫▫▫"
+                    } else if current_bet < 100 {
+                        "▫▫▫▫"
+                    } else {
+                        "▫▫▫▫▫"
+                    }
+                },
+                Style::default().fg(if current_bet > 70 { Color::Red }
+                    else if current_bet > 30 { Color::Yellow }
+                    else { Color::Green })
+            )
+        ])
+    ])
+    .block(Block::default().title("Stats").borders(Borders::ALL));
+    f.render_widget(chip_info, area);
+}
+
+// Render game status sidebar
+fn render_game_status<B: Backend>(f: &mut Frame<B>, app: &App, area: tui::layout::Rect) {
+    // Active players count
+    let active_players = app.game.players.iter().filter(|p| !p.folded).count();
+    
+    // Last game result
+    let result_display = if let Some((winner_name, profit)) = &app.round_results {
+        let profit_str = if *profit >= 0 {
+            format!(" +${}", profit)
+        } else {
+            format!(" -${}", profit.abs())
+        };
+        format!("{} won{}", winner_name, profit_str)
+    } else {
+        "No results yet".to_string()
+    };
+    
+    // Stats
+    let stats_display = if !app.game_stats.is_empty() {
+        let total_profit = app.game_stats.iter().sum::<i32>();
+        format!("Rounds: {}, Total: ${}{}", 
+            app.game_stats.len(),
+            if total_profit >= 0 { "" } else { "-" }, 
+            total_profit.abs())
+    } else {
+        "No rounds played".to_string()
+    };
+    
+    // Game controls
+    let controls = if app.game_active {
+        "s: stop | q: quit"
+    } else {
+        "d: deal | n: set name | q: quit"
+    };
+    
+    let status_widget = Paragraph::new(vec![
+        Line::from(vec![
+            Span::styled("ACTIVE", Style::default().fg(Color::White))
+        ]),
+        Line::from(vec![
+            Span::styled(format!("{} ({} bots)", 
+                active_players, app.game.players.len() - 1), 
+                Style::default().fg(Color::Blue))
+        ]),
+        Line::from(vec![Span::raw("")]),
+        Line::from(vec![
+            Span::styled("LAST ROUND", Style::default().fg(Color::White))
+        ]),
+        Line::from(vec![
+            Span::styled(result_display, Style::default().fg(Color::Green))
+        ]),
+        Line::from(vec![Span::raw("")]),
+        Line::from(vec![
+            Span::styled("STATS", Style::default().fg(Color::White))
+        ]),
+        Line::from(vec![
+            Span::styled(stats_display, Style::default().fg(Color::Yellow))
+        ]),
+        Line::from(vec![Span::raw("")]),
+        Line::from(vec![
+            Span::styled("CONTROLS", Style::default().fg(Color::White))
+        ]),
+        Line::from(vec![
+            Span::styled(controls, Style::default().fg(Color::Cyan))
+        ])
+    ])
+    .block(Block::default().title("Info").borders(Borders::ALL));
+    f.render_widget(status_widget, area);
+}
+
 fn render_community_cards<B: Backend>(f: &mut Frame<B>, app: &App, area: tui::layout::Rect) {
     // Community cards - ensure they don't overflow
     let community_text = if app.game.community_cards.is_empty() {
@@ -549,10 +576,8 @@ fn render_input<B: Backend>(f: &mut Frame<B>, app: &App, area: tui::layout::Rect
         }
     } else if app.bot_thinking {
         "Input [WAITING...]".to_string()
-    } else if !app.game_active {
-        "Input [d:deal n:set-name q:quit]".to_string()
     } else {
-        "Input [WAITING FOR YOUR TURN...]".to_string()
+        "Input [d:deal q:quit]".to_string()
     };
     
     // Truncate input if it gets too long
