@@ -50,7 +50,6 @@ impl Card {
             Suit::Clubs => "♣", Suit::Spades => "♠",
         };
         
-        // For work-friendly display, use more obscure representation
         format!("[{}{}]", rank_str, suit_str)
     }
 }

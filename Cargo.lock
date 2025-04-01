@@ -1009,7 +1009,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "rekop"
+name = "p_kr"
 version = "0.1.0"
 dependencies = [
  "crossterm",

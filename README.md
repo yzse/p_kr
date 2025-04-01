@@ -1,12 +1,12 @@
-# Rekop Poker
+# p_kr
 
-A text-based poker game with AI opponents. Perfect for playing at work with its discreet, text-only interface.
+A text-based poker game with AI opponents on a text-only interface.
 
 ## Features
 
 - Simple TUI (Text User Interface) poker game
 - Play against AI opponents with adjustable difficulty levels
-- Work-friendly, text-only card representation
+- Text-only card representation
 - Integration with OpenAI's GPT for AI decision-making
 
 ## Requirements
