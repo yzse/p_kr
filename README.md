@@ -1,8 +1,8 @@
 # p_kr
 
-<img width="714" alt="Screenshot 2025-04-01 at 10 59 46 PM" src="https://github.com/user-attachments/assets/e5963fe8-94c2-4221-b4c4-3d148ac7bd2e" />
-
 A text-based poker game with AI opponents on a text-only interface.
+
+<img width="714" alt="Screenshot 2025-04-01 at 10 59 46 PM" src="https://github.com/user-attachments/assets/e5963fe8-94c2-4221-b4c4-3d148ac7bd2e" />
 
 ## Features
 
