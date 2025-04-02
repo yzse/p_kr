@@ -39,3 +39,5 @@ cargo run
 ## Note
 
 Without an OpenAI API key, the game will simulate AI decisions based on difficulty levels.
+
+<img width="714" alt="Screenshot 2025-04-01 at 10 59 46 PM" src="https://github.com/user-attachments/assets/e5963fe8-94c2-4221-b4c4-3d148ac7bd2e" />
